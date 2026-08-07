@@ -60,19 +60,26 @@ triage → diagnose → plan → approve → execute → verify → review
 
 ### 闭环流程
 
-```mermaid
-flowchart LR
-    A[多源告警<br/>Prometheus/Loki/K8s Event] --> B[Sentinel<br/>聚合·降噪·定级]
-    B --> C{IncidentCommander<br/>事件指挥官}
-    C --> D[Diagnostician<br/>根因定位+证据]
-    D --> E[Remediator<br/>方案+执行]
-    E -->|L3+ 需审批| H[(Human OnCall)]
-    H --> E
-    E --> F[Validator<br/>独立取数验证]
-    F -->|通过| G[Scribe<br/>复盘+知识沉淀]
-    F -->|失败| I[回滚请求 → Remediator]
-    I --> F
-    G --> J[知识库 → 反哺 RAG]
+```text
+多源告警 (Prometheus / Loki / K8s Event)
+   │
+   ▼
+[ Sentinel 哨兵 ]         聚合 · 降噪 · 定级
+   │
+   ▼
+{ IncidentCommander 事件指挥官 }
+   │
+   ▼
+[ Diagnostician 诊断官 ]   根因定位 + 证据链
+   │
+   ▼
+[ Remediator 执刀手 ]      方案生成 + 执行
+   ├── L3+ 需审批 ──▶ ( Human OnCall 审批 ) ──▶ 回到执行
+   │
+   ▼
+[ Validator 验收官 ]       独立取数验证
+   ├── 通过 ──▶ [ Scribe 书记官 ] 复盘 + 知识沉淀 ──▶ 知识库（反哺 RAG）
+   └── 失败 ──▶ 回滚请求 ──▶ 回到 Remediator
 ```
 
 ---
