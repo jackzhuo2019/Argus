@@ -129,9 +129,19 @@ triage → diagnose → plan → approve → execute → verify → review
 ```
 .
 ├── README.md
-    └── docs/
-        ├── PRD-Argus-零人工运维多Agent闭环系统.md   # 完整需求文档（18 章）
-        └── 技术要点对照检查表.md                          # 技术要点对照与缺口清单
+├── docs/
+│   ├── PRD-Argus-零人工运维多Agent闭环系统.md   # 完整需求文档（19 章 + 版本记录）
+│   ├── 技术要点对照检查表.md                          # 技术要点对照与缺口清单
+│   └── Grilling决策记录-Q1-Q8.md                    # 8 项承重墙决策完整论证
+├── datasets/
+│   ├── README.md                                     # 故障基准数据集规格（12 条场景 + 标注 Schema + 评估流水线）
+│   └── labels/                                       # Ground Truth 标注（F-01~F-12 YAML）
+├── deploy/
+│   └── risk-rules/
+│       └── seed-rules.yaml                           # 确定性风险分级引擎种子规则表
+└── demo/
+    ├── demo-01-full-closure.sh                       # Demo: Pod OOM → L1 全自动闭环
+    └── demo-02-l3-approval-and-unknown-rejection.sh  # Demo: L3 人工审批 + 未知动作拒绝
 ```
 
 ---
@@ -142,7 +152,9 @@ triage → diagnose → plan → approve → execute → verify → review
 
 - [ ] 补全剩余 Skill 的九要素契约（共 17 个 Skill，部分已定义）
 - [ ] 搭建可运行 Demo 环境（K8s + 自建可观测栈）
-- [ ] 构建故障注入与验证数据集
+- [x] 构建故障注入与验证数据集（`datasets/`，12 条场景覆盖 L0–L4 + 未知 + 冻结窗 + 熔断）
+- [x] 确定性风险规则表种子集（`deploy/risk-rules/seed-rules.yaml`）
+- [x] Demo 闭环脚本（`demo/`，L1 全自动 + L3 审批/未知动作拒绝）
 - [ ] 推进若干待决议项：LLM 选型、观测方案选型、是否引入消息队列、Runbook 格式、观察期时长
 
 ---
@@ -151,6 +163,10 @@ triage → diagnose → plan → approve → execute → verify → review
 
 - 需求文档：[`docs/PRD-Argus-零人工运维多Agent闭环系统.md`](docs/PRD-Argus-零人工运维多Agent闭环系统.md)
 - 技术要点对照：[`docs/技术要点对照检查表.md`](docs/技术要点对照检查表.md)
+- Grilling 决策记录：[`docs/Grilling决策记录-Q1-Q8.md`](docs/Grilling决策记录-Q1-Q8.md)
+- 故障基准数据集：[`datasets/README.md`](datasets/README.md)
+- 风险规则表种子集：[`deploy/risk-rules/seed-rules.yaml`](deploy/risk-rules/seed-rules.yaml)
+- Demo 脚本：[`demo/demo-01-full-closure.sh`](demo/demo-01-full-closure.sh) · [`demo/demo-02-l3-approval-and-unknown-rejection.sh`](demo/demo-02-l3-approval-and-unknown-rejection.sh)
 
 ---
 

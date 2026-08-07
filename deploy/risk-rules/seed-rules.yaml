@@ -1,0 +1,296 @@
+# Argus 确定性风险分级引擎 — 种子规则表
+# 对应 PRD §7.5 风险规则表治理
+#
+# 命中逻辑：按 rule 顺序匹配，取第一个命中的等级。
+# 未命中的动作 → 默认拒绝（L3-equivalent 升级人工），绝不默认放行。
+#
+# 匹配维度：action_verb × resource_type × namespace_scope × in_freeze_window → risk_level
+# 格式：声明式策略文件，Git 管理，变更走 PR + 人工评审，绝不自动生效。
+
+apiVersion: argus.io/v1
+kind: RiskRuleSet
+metadata:
+  name: seed-rules
+  version: "1.0.0"
+  description: "开箱内置覆盖常见 K8s 修复动词的 L0-L4 映射种子集"
+spec:
+  # ──────────────────────────────────────────────────
+  # L0 — 只读（全自动，无限制）
+  # ──────────────────────────────────────────────────
+  - id: "L0-001"
+    action_verb: "get"
+    resource_types: ["pod", "deployment", "service", "configmap", "ingress", "pvc", "pv", "node", "namespace"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L0"
+    description: "只读查询操作"
+
+  - id: "L0-002"
+    action_verb: "describe"
+    resource_types: ["*"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L0"
+    description: "describe 查询操作"
+
+  - id: "L0-003"
+    action_verb: "logs"
+    resource_types: ["pod"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L0"
+    description: "查看 Pod 日志"
+
+  - id: "L0-004"
+    action_verb: "top"
+    resource_types: ["pod", "node"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L0"
+    description: "资源使用率查询"
+
+  # ──────────────────────────────────────────────────
+  # L1 — 低风险自愈（全自动执行 + 事后通知）
+  # ──────────────────────────────────────────────────
+  - id: "L1-001"
+    action_verb: "rollout restart"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L1"
+    description: "重启单个无状态 Deployment（单命名空间，非冻结窗）"
+    constraints:
+      max_replicas_affected: 1    # 单实例级别
+      requires_snapshot: false
+      requires_approval: false
+
+  - id: "L1-002"
+    action_verb: "delete pod"
+    resource_types: ["pod"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L1"
+    description: "驱逐/删除异常 Pod（让控制器重建），单实例级自愈"
+    constraints:
+      max_replicas_affected: 1
+      requires_snapshot: false
+      requires_approval: false
+      must_wait_for_controller_recreate: true
+
+  - id: "L1-003"
+    action_verb: "exec -- probe"
+    resource_types: ["pod"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: "any"
+    risk_level: "L1"
+    description: "触发一次健康探针（只读探活）"
+    constraints:
+      requires_snapshot: false
+      requires_approval: false
+
+  # ──────────────────────────────────────────────────
+  # L2 — 中风险（自动执行 + 强制快照 + 一键回滚 + 实时通知）
+  # ──────────────────────────────────────────────────
+  - id: "L2-001"
+    action_verb: "scale"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L2"
+    description: "HPA 上限内扩缩容"
+    constraints:
+      within_hpa_limits: true     # 必须在 HPA 配置的 min/max 范围内
+      requires_snapshot: true
+      requires_approval: false
+      rollback_enabled: true
+
+  - id: "L2-002"
+    action_verb: "patch configmap"
+    resource_types: ["configmap"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L2"
+    description: "ConfigMap 热更新"
+    constraints:
+      requires_snapshot: true
+      requires_approval: false
+      rollback_enabled: true
+      must_trigger_rollout: true  # ConfigMap 变更后须触发关联 Deployment rollout
+
+  - id: "L2-003"
+    action_verb: "annotate"
+    resource_types: ["service", "ingress"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L2"
+    description: "调整限流/降级/熔断开关注解"
+    constraints:
+      requires_snapshot: true
+      requires_approval: false
+      rollback_enabled: true
+
+  - id: "L2-004"
+    action_verb: "scale"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L2"
+    description: "清理缓存注解"
+    constraints:
+      requires_snapshot: true
+      requires_approval: false
+      rollback_enabled: true
+
+  # ──────────────────────────────────────────────────
+  # L3 — 高风险（仅生成方案，必须人工审批后执行）
+  # ──────────────────────────────────────────────────
+  - id: "L3-001"
+    action_verb: "rollout undo"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L3"
+    description: "版本回滚（涉及发布态变更）"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+      rollback_enabled: true
+
+  - id: "L3-002"
+    action_verb: "set image"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L3"
+    description: "Deployment 镜像变更"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+      rollback_enabled: true
+
+  - id: "L3-003"
+    action_verb: "patch ingress"
+    resource_types: ["ingress"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: false
+    risk_level: "L3"
+    description: "Ingress 路由规则变更"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+      rollback_enabled: true
+
+  - id: "L3-004"
+    action_verb: "rollout restart"
+    resource_types: ["deployment"]
+    namespace_scope: "single-namespace"
+    in_freeze_window: true
+    risk_level: "L3"
+    description: "冻结窗口内的重启操作升级为 L3"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+
+  - id: "L3-005"
+    action_verb: "cordon"
+    resource_types: ["node"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L3"
+    description: "节点 cordon（影响调度）"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+
+  - id: "L3-006"
+    action_verb: "drain"
+    resource_types: ["node"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L3"
+    description: "节点 drain（驱逐所有 Pod，影响面大）"
+    constraints:
+      requires_snapshot: true
+      requires_approval: true
+      approval_token_single_use: true
+
+  # ──────────────────────────────────────────────────
+  # L4 — 禁止（Broker + 规则表硬拦截，Agent 无此权限）
+  # ──────────────────────────────────────────────────
+  - id: "L4-001"
+    action_verb: "delete"
+    resource_types: ["pvc", "pv"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L4"
+    description: "删除 PVC/PV（数据丢失风险）"
+    broker_block: true    # Broker 侧直接拒发令牌
+
+  - id: "L4-002"
+    action_verb: "delete"
+    resource_types: ["namespace"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L4"
+    description: "删除 Namespace（毁灭性操作）"
+    broker_block: true
+
+  - id: "L4-003"
+    action_verb: "delete"
+    resource_types: ["crd"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L4"
+    description: "删除 CRD（自定义资源定义）"
+    broker_block: true
+
+  - id: "L4-004"
+    action_verb: "*"
+    resource_types: ["secret", "role", "rolebinding", "clusterrole", "clusterrolebinding"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "L4"
+    description: "修改/删除 RBAC 与密钥（权限安全）"
+    broker_block: true
+
+  - id: "L4-005"
+    action_verb: "*"
+    resource_types: ["*"]
+    namespace_scope: "kube-system"
+    in_freeze_window: "any"
+    risk_level: "L4"
+    description: "kube-system 命名空间内任何写操作"
+    broker_block: true
+
+  # ──────────────────────────────────────────────────
+  # 冻结窗口覆盖规则（L2 → L3 提升）
+  # ──────────────────────────────────────────────────
+  - id: "FREEZE-001"
+    action_verb: "*"
+    resource_types: ["*"]
+    namespace_scope: "*"
+    in_freeze_window: true
+    risk_level: "L3"
+    description: "冻结窗口内所有非 L1 动作升级为 L3（强制人工审批）"
+    overrides_lower: true    # 此规则优先级高于同动作的非冻结版本
+    # 但 L1 动作在冻结窗内仍可执行（L1 规则 FREEZE-001 不覆盖）
+    exceptions: ["L0-001", "L0-002", "L0-003", "L0-004", "L1-003"]
+
+  # ──────────────────────────────────────────────────
+  # 默认策略（兜底）
+  # ──────────────────────────────────────────────────
+  - id: "DEFAULT"
+    action_verb: "*"
+    resource_types: ["*"]
+    namespace_scope: "*"
+    in_freeze_window: "any"
+    risk_level: "UNKNOWN"
+    description: "未匹配任何已知规则的动作 → 默认拒绝并升级人工（L3-equivalent 审批）"
+    default: true
+    broker_block: true       # Broker 侧拒发令牌，必须人工裁决
+    candidate_patch: true    # 记录为候选补丁喂回治理流（§7.5 → §5 AG-05）

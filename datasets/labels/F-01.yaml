@@ -1,0 +1,90 @@
+# 故障标注 Ground Truth — F-01: Pod OOM 单实例
+# 对应 PRD §7.1 L1 低风险自愈 · §16 Demo 交付验收
+
+fault_id: "F-01"
+fault_name: "Pod OOM 单实例"
+category: "resource_pressure"
+risk_level: "L1"
+
+# ── 触发方式 ──
+injection:
+  type: "chaos-mesh"
+  action: "memory-stress"
+  target:
+    namespace: "demo-app"
+    workload: "deployment/order-service"
+    pod_pattern: "order-service-*"
+  params:
+    memory_mib: 512
+    duration: "5m"
+  trigger_at: "T+0s"
+
+# ── 告警预期 ──
+expected_alerts:
+  - source: "prometheus"
+    alertname: "KubePodCrashLooping"
+    severity: "warning"
+    labels: { namespace: "demo-app", pod: "order-service-*" }
+    fired_at: "T+30s"
+    expected_action: "aggregate"
+  - source: "k8s-event"
+    alertname: "BackOff"
+    severity: "warning"
+    fired_at: "T+35s"
+    expected_action: "aggregate"
+  - source: "prometheus"
+    alertname: "KubeDeploymentReplicasMismatch"
+    severity: "warning"
+    fired_at: "T+40s"
+    expected_action: "aggregate"
+
+# ── 根因 Ground Truth ──
+root_cause:
+  primary: "Pod OOM due to memory limit hit (512Mi limit, workload spike)"
+  evidence_chain:
+    - type: "metric"
+      query: "container_memory_working_set_bytes{pod=~'order-service-.*'}"
+      expected_value: "> 512Mi"
+      timestamp: "T+20s"
+    - type: "k8s_event"
+      reason: "OOMKilled"
+      event_type: "Warning"
+    - type: "log"
+      source: "loki"
+      pattern: "OutOfMemory"
+      expected_match: true
+    - type: "change"
+      expected: false
+  top1_expected: "Pod OOM"
+  top3_expected: ["Pod OOM", "Memory limit too low", "Memory leak in application"]
+
+# ── 正确修复动作 ──
+expected_remediation:
+  action: "kubectl rollout restart deployment/order-service -n demo-app"
+  risk_level: "L1"
+  rule_table_match: "L1-001: rollout restart / deployment / single-namespace / non-freeze → L1"
+  expected_outcome: "Pod 重启，新 Pod 正常启动，OOM 消除"
+  rollback_path: "N/A（L1 无需快照，重启是幂等的自愈动作）"
+  expected_duration: "< 60s"
+
+# ── 验证预期 ──
+expected_validation:
+  slo_check: "error_rate < 1% && p95_latency < 200ms"
+  observation_window: "120s"
+  expected_result: "PASS"
+  side_effects: "none"
+
+# ── 预期指标变化 ──
+expected_metrics:
+  alert_suppression_rate: 0.667          # 3 条告警聚合成 1 个 Incident（2/3 被抑制）
+  root_cause_top1_hit: true
+  root_cause_top3_hit: true
+  autonomous_closure: true
+  remediation_risk_level: "L1"
+  validation_pass: true
+  closure_time_p95: "< 5min"
+  false_remediation: false
+  over_conservative: false
+
+# ── 闭环路径 ──
+expected_path: "triage → diagnose → plan → [skip approve, L1] → execute → verify → review"
