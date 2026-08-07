@@ -1,8 +1,8 @@
-# Nightwatch · 守夜人
+# Argus · 守夜人
 
 > 一个开源的多 Agent 运维值班班组。它把「告警 → 根因 → 修复 → 验证 → 复盘」这条本该由人在凌晨三点完成的链路，交给一组职责分明、全程可审计、高风险动作必须请示人类的 AI Agent 来完成。
 
-Nightwatch 的目标是：**把人的注意力从 100 起告警收敛到 3 起真正需要判断的决策**。它不是「无人化」的营销叙事，而是让值班工程师从重复劳动中解放出来，把判断力留给真正重要的时刻。
+Argus 的定位是**「人类在环的自主运维闭环」**："零"指零日常重复性人力消耗（无人盯盘、无人工分诊告警风暴），而非零人类责任 / 零审批。重大事故（L3/L4、未知动作）仍由人拍板。目标是**把人的注意力从 100 起告警收敛到 3 起真正需要判断的决策**，让值班工程师从重复劳动中解放出来，把判断力留给真正重要的时刻。
 
 ---
 
@@ -30,7 +30,7 @@ Nightwatch 的目标是：**把人的注意力从 100 起告警收敛到 3 起�
 
 | # | 原则 | 说明 |
 |---|---|---|
-| ① | 安全边界靠架构，不靠 Prompt | Worker 永不持有真实凭证，只带消费者令牌；真实密钥留在 Higress AI 网关。即使 Agent 被提示注入攻破，破坏上限由网关侧策略硬约束 |
+| ① | 安全边界靠架构，不靠 Prompt | 凭证分两平面：LLM/MCP 访问凭据由 Higress AI 网关代持；**K8s 执行凭据由独立 Broker 持有**，按需 mint 短期按 SA 最小化令牌，Agent 结构性不持真实集群凭据。即使 Agent 被提示注入攻破，破坏上限由 Broker + RBAC 硬约束 |
 | ② | 执行者与验证者强制分离 | Remediator 负责变更，Validator 独立取数验收；Validator 不可复用 Remediator 的数据作为依据，杜绝自证 |
 | ③ | 风险等级由独立引擎裁决 | 动作风险等级由独立的风险引擎判定，而非 Agent 自评，避免「为闭环而闭环」 |
 
@@ -90,7 +90,7 @@ triage → diagnose → plan → approve → execute → verify → review
 |---|---|
 | 编排框架 | AgentTeams（Apache-2.0），Manager-Workers 架构，基于 Matrix 协议通信，K8s CRD 声明式定义 Worker/Team/Human |
 | 可观测底座 | Kubernetes + Prometheus / Alertmanager / Grafana / Loki（自建，不重造） |
-| 凭证安全 | Higress AI 网关统一接管真实密钥，Worker 仅持 scoped 短期消费者令牌 |
+| 凭证安全 | **双平面**：Higress AI 网关代持 LLM/MCP 访问密钥（Worker 持 consumer token）；独立 K8s 凭证 Broker 持有真实集群凭据，按需 mint 短期 scoped 令牌供执行（Agent 不持真凭据） |
 | 运行时 | OpenClaw（Node，技能生态丰富）/ QwenPaw（Python，轻量）/ Hermes（终端沙箱 + 持久记忆），可混用 |
 | 能力层 | Nacos Skills Registry（17 个可复用 Skill，支持版本化/灰度/回滚）+ MinIO（Agent 间大对象共享）+ AgentLoop（可观测） |
 
@@ -107,7 +107,7 @@ triage → diagnose → plan → approve → execute → verify → review
 | G5 | 事故自动沉淀为知识资产 | 复盘自动生成率 100%，蒸馏为 Runbook/Skill 转化率 ≥ 30% |
 | G6 | 全流程可审计可追溯 | 每个动作有 Trace + 操作日志 + 变更快照，支持完整回放 |
 
-**北极星指标**：自主闭环率（须与误修复率 ≤ 2% 的护栏绑定，避免为闭环而闭环）。
+**北极星指标**：自主闭环率（须与对称护栏绑定——误修复率 ≤ 2% + 过度保守率 ≤ 15%，且全部指标在固定评估数据集上计算，避免"冒进"或"永远不执行"两种退化）。
 
 ---
 
@@ -120,7 +120,7 @@ triage → diagnose → plan → approve → execute → verify → review
 - ❌ 不覆盖有状态服务的数据面修复（数据库主从切换等 v1.0 一律划入 L4 禁止区）
 - ❌ 不做多云/混合云统一纳管（v1.0 仅保证 K8s + Prometheus 栈跑通）
 - ❌ 不做自研 LLM 或模型微调（通过 Higress 网关统一接入）
-- ❌ 不替代人工 On-Call 制度（Nightwatch 是值班人的副驾）
+- ❌ 不替代人工 On-Call 制度（Argus 是值班人的副驾）
 
 ---
 
@@ -130,7 +130,7 @@ triage → diagnose → plan → approve → execute → verify → review
 .
 ├── README.md
     └── docs/
-        ├── PRD-Nightwatch-零人工运维多Agent闭环系统.md   # 完整需求文档（18 章）
+        ├── PRD-Argus-零人工运维多Agent闭环系统.md   # 完整需求文档（18 章）
         └── 技术要点对照检查表.md                          # 技术要点对照与缺口清单
 ```
 
@@ -149,7 +149,7 @@ triage → diagnose → plan → approve → execute → verify → review
 
 ## 文档索引
 
-- 需求文档：[`docs/PRD-Nightwatch-零人工运维多Agent闭环系统.md`](docs/PRD-Nightwatch-零人工运维多Agent闭环系统.md)
+- 需求文档：[`docs/PRD-Argus-零人工运维多Agent闭环系统.md`](docs/PRD-Argus-零人工运维多Agent闭环系统.md)
 - 技术要点对照：[`docs/技术要点对照检查表.md`](docs/技术要点对照检查表.md)
 
 ---
