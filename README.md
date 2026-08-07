@@ -12,8 +12,8 @@ Argus 的定位是**「人类在环的自主运维闭环」**："零"指零日�
 |---|---|
 | 项目类型 | 开源项目 + 可运行 Demo |
 | 技术栈 | Kubernetes + Prometheus / Alertmanager / Grafana / Loki 自建可观测栈 |
-| 协同框架 | AgentTeams（原 HiClaw），Apache-2.0 |
-| 自治策略 | 分级自治（L0–L4 风险分层，高风险强制人工审批） |
+| 协同框架 | AgentTeams（Apache-2.0），Manager-Workers 架构，Matrix 协议通信；**双部署模式**：本地 Docker（Demo + 单机生产）/ K8s Helm（共享多租生产） |
+| 自治策略 | 分级自治（L0–L4 风险分层，高风险强制人工审批）；确定性两阶段风险引擎（静态规则匹配 + 运行时约束校验） |
 
 ---
 
@@ -32,7 +32,8 @@ Argus 的定位是**「人类在环的自主运维闭环」**："零"指零日�
 |---|---|---|
 | ① | 安全边界靠架构，不靠 Prompt | 凭证分两平面：LLM/MCP 访问凭据由 Higress AI 网关代持；**K8s 执行凭据由独立 Broker 持有**，按需 mint 短期按 SA 最小化令牌，Agent 结构性不持真实集群凭据。即使 Agent 被提示注入攻破，破坏上限由 Broker + RBAC 硬约束 |
 | ② | 执行者与验证者强制分离 | Remediator 负责变更，Validator 独立取数验收；Validator 不可复用 Remediator 的数据作为依据，杜绝自证 |
-| ③ | 风险等级由独立引擎裁决 | 动作风险等级由独立的风险引擎判定，而非 Agent 自评，避免「为闭环而闭环」 |
+| ③ | 风险等级由确定性引擎裁决 | 动作风险等级由两阶段管线（静态规则匹配 + 运行时约束校验）判定，而非 Agent 自评或 LLM 二审，避免「为闭环而闭环」 |
+| ④ | 编排控制流确定性 | Manager（IncidentCommander）内置确定性编排逻辑（OpenClaw 系统指令 + 确定性工具集 `advance-state` / `assign-worker` / `escalate`），LLM 只生成文本；最坏情况是 stall（超时→通知人工），非失控。PostgreSQL append-only 审计表支持完整重放 |
 
 ---
 
@@ -88,8 +89,9 @@ triage → diagnose → plan → approve → execute → verify → review
 
 | 层 | 选型 |
 |---|---|
-| 编排框架 | AgentTeams（Apache-2.0），Manager-Workers 架构，基于 Matrix 协议通信，K8s CRD 声明式定义 Worker/Team/Human |
-| 可观测底座 | Kubernetes + Prometheus / Alertmanager / Grafana / Loki（自建，不重造） |
+| 编排框架 | AgentTeams（Apache-2.0），Manager-Workers 架构，基于 Matrix 协议通信；**双部署模式**：本地 Docker（`curl | bash`，无需 K8s，Demo + 单机生产）/ K8s Helm（共享/多租生产） |
+| 可观测底座 | Kubernetes + Prometheus / Alertmanager / Grafana / Loki（自建，不重造）；Demo 用 kind 集群承载被监控服务 |
+| 编排控制 | Manager（IncidentCommander）内置确定性编排逻辑（OpenClaw 系统指令 + 确定性工具集），非外部引擎；PostgreSQL append-only 审计表支持完整重放 |
 | 凭证安全 | **双平面**：Higress AI 网关代持 LLM/MCP 访问密钥（Worker 持 consumer token）；独立 K8s 凭证 Broker 持有真实集群凭据，按需 mint 短期 scoped 令牌供执行（Agent 不持真凭据） |
 | 运行时 | OpenClaw（Node，技能生态丰富）/ QwenPaw（Python，轻量）/ Hermes（终端沙箱 + 持久记忆），可混用 |
 | 能力层 | Nacos Skills Registry（17 个可复用 Skill，支持版本化/灰度/回滚）+ MinIO（Agent 间大对象共享）+ AgentLoop（可观测） |
@@ -130,31 +132,35 @@ triage → diagnose → plan → approve → execute → verify → review
 .
 ├── README.md
 ├── docs/
-│   ├── PRD-Argus-零人工运维多Agent闭环系统.md   # 完整需求文档（19 章 + 版本记录）
+│   ├── PRD-Argus-零人工运维多Agent闭环系统.md   # 完整需求文档（19 章 + 版本记录，v1.4）
 │   ├── 技术要点对照检查表.md                          # 技术要点对照与缺口清单
-│   └── Grilling决策记录-Q1-Q8.md                    # 8 项承重墙决策完整论证
+│   ├── Grilling决策记录-Q1-Q8.md                    # 第一轮 8 项承重墙决策完整论证
+│   └── Grilling决策记录-Q9-Q16.md                   # 第二轮 8 项承重墙决策完整论证（v1.4 新增）
 ├── datasets/
 │   ├── README.md                                     # 故障基准数据集规格（12 条场景 + 标注 Schema + 评估流水线）
 │   └── labels/                                       # Ground Truth 标注（F-01~F-12 YAML）
 ├── deploy/
 │   └── risk-rules/
-│       └── seed-rules.yaml                           # 确定性风险分级引擎种子规则表
+│       └── seed-rules.yaml                           # 确定性风险分级引擎种子规则表（L0-L4 + DEFAULT 拒绝 + 冻结窗）
 └── demo/
     ├── demo-01-full-closure.sh                       # Demo: Pod OOM → L1 全自动闭环
     └── demo-02-l3-approval-and-unknown-rejection.sh  # Demo: L3 人工审批 + 未知动作拒绝
 ```
 
+> **部署拓扑**：`deploy/topology.yaml`（声明式服务拓扑，Manager 内部确定性模块消费）将在工程落地阶段加入 `deploy/` 目录。Demo 使用 `./setup.sh`（仅需 Docker）拉起 AgentTeams 本地 Docker + kind 集群。
+
 ---
 
 ## 当前状态与路线图
 
-项目已完成需求定义与架构设计，正在推进工程落地：
+项目已完成需求定义与架构设计（PRD v1.4，两轮 Grilling 压力测试共 16 项承重墙决策锁定），正在推进工程落地：
 
-- [ ] 补全剩余 Skill 的九要素契约（共 17 个 Skill，部分已定义）
-- [ ] 搭建可运行 Demo 环境（K8s + 自建可观测栈）
+- [ ] 补全剩余 Skill 的九要素契约（共 17 个 Skill，SK-01 + SK-09 已在 PRD v1.4 展开）
+- [ ] 搭建可运行 Demo 环境（`./setup.sh` + kind 集群 + AgentTeams 本地 Docker）
 - [x] 构建故障注入与验证数据集（`datasets/`，12 条场景覆盖 L0–L4 + 未知 + 冻结窗 + 熔断）
-- [x] 确定性风险规则表种子集（`deploy/risk-rules/seed-rules.yaml`）
+- [x] 确定性风险规则表种子集（`deploy/risk-rules/seed-rules.yaml`，L0-L4 + DEFAULT 拒绝 + 冻结窗）
 - [x] Demo 闭环脚本（`demo/`，L1 全自动 + L3 审批/未知动作拒绝）
+- [x] 两轮 Grilling 决策记录（Q1-Q8 + Q9-Q16，共 16 项承重墙决策完整论证）
 - [ ] 推进若干待决议项：LLM 选型、观测方案选型、是否引入消息队列、Runbook 格式、观察期时长
 
 ---
@@ -163,7 +169,8 @@ triage → diagnose → plan → approve → execute → verify → review
 
 - 需求文档：[`docs/PRD-Argus-零人工运维多Agent闭环系统.md`](docs/PRD-Argus-零人工运维多Agent闭环系统.md)
 - 技术要点对照：[`docs/技术要点对照检查表.md`](docs/技术要点对照检查表.md)
-- Grilling 决策记录：[`docs/Grilling决策记录-Q1-Q8.md`](docs/Grilling决策记录-Q1-Q8.md)
+- Grilling 决策记录（第一轮）：[`docs/Grilling决策记录-Q1-Q8.md`](docs/Grilling决策记录-Q1-Q8.md)
+- Grilling 决策记录（第二轮）：[`docs/Grilling决策记录-Q9-Q16.md`](docs/Grilling决策记录-Q9-Q16.md)
 - 故障基准数据集：[`datasets/README.md`](datasets/README.md)
 - 风险规则表种子集：[`deploy/risk-rules/seed-rules.yaml`](deploy/risk-rules/seed-rules.yaml)
 - Demo 脚本：[`demo/demo-01-full-closure.sh`](demo/demo-01-full-closure.sh) · [`demo/demo-02-l3-approval-and-unknown-rejection.sh`](demo/demo-02-l3-approval-and-unknown-rejection.sh)

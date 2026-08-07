@@ -165,7 +165,7 @@ datasets/
 │   │   ├── metrics.jsonl              # 指标数据
 │   │   ├── logs.jsonl                 # 日志切片
 │   │   ├── k8s-events.jsonl           # K8s 事件
-│   │   └── topology.json              # 拓扑快照（静态）
+│   │   └── topology.json              # 拓扑快照（录制时静态；声明式源见 deploy/topology.yaml）
 │   └── ...
 ├── injection/                         # 混沌注入脚本（可复现）
 │   ├── F-01-oom.sh

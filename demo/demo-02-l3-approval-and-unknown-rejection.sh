@@ -10,10 +10,11 @@
 #   Part B: 未知动作（规则表无匹配）→ 默认拒绝 → Broker 拒发令牌 → 升级人工
 #
 # 前置条件：
-#   1. Demo K8s 集群 + Argus 6 个 Agent 已就绪
-#   2. deploy/risk-rules/seed-rules.yaml 已 apply 到风险引擎
-#   3. K8s 凭证 Broker 已部署且在线
-#   4. order-service Deployment 有至少 2 个历史版本（支持 rollout undo）
+#   1. 运行 ./setup.sh 启动 Demo 环境（AgentTeams 本地 Docker + kind 集群）
+#   2. Argus 6 个 Agent 已就绪
+#   3. deploy/risk-rules/seed-rules.yaml 已 apply 到风险引擎
+#   4. K8s 凭证 Broker 已部署且在线
+#   5. order-service Deployment 有至少 2 个历史版本（支持 rollout undo）
 #
 # 运行方式：
 #   bash demo/demo-02-l3-approval-and-unknown-rejection.sh [--dry-run]

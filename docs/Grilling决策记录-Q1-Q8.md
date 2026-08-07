@@ -125,4 +125,4 @@ AgentTeams/Higress 只作为 Broker 的一种可能实现，而非安全模型�
 
 ---
 
-*Grilling 记录结束。8 项决策已全部落到 PRD v1.1、README、对照检查表。*
+*Grilling 记录结束。8 项决策已全部落到 PRD（v1.1 初版 → v1.4 最终版，经第二轮 Q9-Q16 进一步强化）、README、对照检查表。*

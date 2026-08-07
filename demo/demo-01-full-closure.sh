@@ -6,7 +6,7 @@
 # 对应 PRD：§16 Demo 交付验收「全程无人工介入完成一次 L1 故障闭环」
 #
 # 前置条件：
-#   1. Demo K8s 集群已启动（docker-compose up）
+#   1. 运行 ./setup.sh 启动 Demo 环境（AgentTeams 本地 Docker + kind 集群）
 #   2. Argus 6 个 Agent 已部署（Team CR 已 apply）
 #   3. Chaos Mesh 已安装在 demo-app namespace
 #   4. order-service Deployment 已部署（带 512Mi memory limit）
@@ -54,7 +54,7 @@ kubectl get deploy "${DEPLOYMENT}" -n "${NAMESPACE}" >/dev/null 2>&1 || fail "de
 kubectl get pod -n chaos-mesh 2>/dev/null | grep -q chaos-daemon || fail "Chaos Mesh 未安装或未就绪"
 
 # 检查 Argus Agent
-kubectl get team nightwatch-crew 2>/dev/null | grep -q nightwatch-crew || fail "Argus Team CR 未部署"
+kubectl get team argus-crew 2>/dev/null | grep -q argus-crew || fail "Argus Team CR 未部署"
 
 ok "环境检查通过"
 

@@ -1,9 +1,9 @@
 # Argus · 守夜人
-## 人类在环的自主运维多 Agent 闭环系统 — 需求文档（PRD v1.3）
+## 人类在环的自主运维多 Agent 闭环系统 — 需求文档（PRD v1.4）
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v1.3（v1.2 更名 + T1 产出：故障数据集/规则表种子集/Demo 脚本） |
+| 文档版本 | v1.4（第二轮 Grilling Q9–Q16 整合 + SK-01/SK-09 契约补全 + Agent ID 改名 + 双部署模式对照 + US-24 口径修正） |
 | 状态 | 草稿 · 评审中 |
 | 日期 | 2026-08-07 |
 | 项目定位 | 开源项目 + 可运行 Demo |
@@ -16,10 +16,11 @@
 
 | 版本 | 日期 | 作者 | 变更摘要 |
 |---|---|---|---|
-| v1.0 | 2026-08-07 | 产品通 | 初始需求文档，完整 18 章，覆盖「零人工运维」方向一五段闭环（告警聚合 → 根因定位 → 修复执行 → 恢复验证 → 事故复盘） |
-| v1.1 | 2026-08-07 | 产品通 | Grilling 压力测试后修订：锁定 8 项承重墙决策（确定性规则引擎 / PostgreSQL + pgvector / 双平面凭证 / 对称护栏指标 / 显式学习回路 / 种子规则集 + 默认拒绝 / 代码引擎编排 / 人类在环定位），详见 §19 |
-| v1.2 | 2026-08-07 | 产品通 | 项目英文名由 Nightwatch 更名为 **Argus**（中文「守夜人」保留）；新增本节版本记录 |
-| v1.3 | 2026-08-07 | 产品通 | T1 产出：故障基准数据集（12 条场景 + 标注 Schema + 离线评估流水线）、确定性风险规则表种子集（`seed-rules.yaml`）、两条 Demo 闭环脚本（F-01 L1 全自动 + F-04/F-08 L3 审批/未知动作拒绝） |
+| v1.0 | 2026-08-07 | derek | 初始需求文档，完整 18 章，覆盖「零人工运维」方向一五段闭环（告警聚合 → 根因定位 → 修复执行 → 恢复验证 → 事故复盘） |
+| v1.1 | 2026-08-07 | derek | Grilling 压力测试后修订：锁定 8 项承重墙决策（确定性规则引擎 / PostgreSQL + pgvector / 双平面凭证 / 对称护栏指标 / 显式学习回路 / 种子规则集 + 默认拒绝 / 代码引擎编排 / 人类在环定位），详见 §19 |
+| v1.2 | 2026-08-07 | derek | 项目英文名由 Nightwatch 更名为 **Argus**（中文「守夜人」保留）；新增本节版本记录 |
+| v1.3 | 2026-08-07 | derek | T1 产出：故障基准数据集（12 条场景 + 标注 Schema + 离线评估流水线）、确定性风险规则表种子集（`seed-rules.yaml`）、两条 Demo 闭环脚本（F-01 L1 全自动 + F-04/F-08 L3 审批/未知动作拒绝） |
+| v1.4 | 2026-08-07 | derek | 第二轮 Grilling Q9–Q16 整合：风险规则表两阶段管线（静态匹配+运行时约束校验）；~~Temporal~~ 撤回改为 Manager 内置确定性编排模块；拓扑数据源用 `topology.yaml` + Known Gap；Demo 部署 AgentTeams 本地 Docker + kind 分离；Agent ID 全局 `argus-` → `argus-`；补双部署模式对照表；US-24 口径修正为 `./setup.sh`；补 SK-01 + SK-09 九要素契约；Manager 编排形态确定为 OpenClaw + 确定性工具集（方式 1） |
 
 ---
 
@@ -151,13 +152,22 @@
 
 > 赛道明确要求：「AgentTeams 不是只看是否提到工具名称，应重点核验角色编排、任务拆解、上下文传递、协同执行与状态追踪如何映射到框架能力。」以下是逐项映射：
 
+**v1.4 修订（双部署模式）**：AgentTeams 支持两种部署模式，能力等价，按规模选择：
+
+| 模式 | 适用场景 | 前置条件 | Agent 定义方式 | 示例微服务/K8s 资源 |
+|---|---|---|---|---|
+| **本地 Docker 模式** | Demo + 单机生产 | 仅 Docker + 2核4G | AgentTeams 安装脚本/Docker 配置定义 Worker（非 CRD） | 被监控集群用 kind 单独创建 |
+| **K8s Helm 模式** | 共享/多租户生产 | K8s 集群 | `Worker`/`Team`/`Human` CRD 声明式 YAML | 同集群或跨集群 |
+
+> 两种模式下 Agent Identity 的属性（职责、权限边界、协同关系）**语义等价**，只是声明载体不同。下表映射适用于两种模式，标注「CRD」处为 K8s 模式的声明方式，本地模式对应等价的 Docker 配置。
+
 | 框架能力 | AgentTeams 提供的机制 | Argus 的具体落地 |
 |---|---|---|
-| **角色编排** | K8s 风格声明式 CRD：`Worker` / `Team` / `Human` | 用 6 份 YAML 定义值班班组：1 个 Manager CR、5 个 Worker CR、1 个 Human CR（OnCall）；用一个 `Team` CR 绑定为 `nightwatch-crew`。角色增删只改 YAML，不改代码 |
-| **任务拆解** | Manager Agent 集中编排控制流，向 Worker 分派任务 | IncidentCommander 按事件状态机把一起事故拆为 7 段子任务：`triage → diagnose → plan → approve → execute → verify → review`，每段有明确的输入契约、超时和失败分支。**状态机本身是确定性工作流引擎（代码）驱动的，不依赖 LLM 实时判断**；LLM Manager 只在各段内做生成式子任务（摘要、按结构化状态决定下一步派谁、起草给人看的描述） |
+| **角色编排** | K8s 风格声明式 CRD：`Worker` / `Team` / `Human`（K8s 模式）；Docker 配置 + 安装脚本（本地模式） | 用 6 份配置定义值班班组：1 个 Manager、5 个 Worker、1 个 Human（OnCall）；K8s 模式用 `Team` CR 绑定为 `argus-crew`，本地模式用 AgentTeams 安装脚本定义。角色增删只改配置，不改代码 |
+| **任务拆解** | Manager Agent 集中编排控制流，向 Worker 分派任务 | IncidentCommander 按事件状态机把一起事故拆为 7 段子任务：`triage → diagnose → plan → approve → execute → verify → review`，每段有明确的输入契约、超时和失败分支。**状态机由 Manager 内置的确定性编排模块（代码+配置）驱动，不依赖 LLM 实时判断**（Q10 修正/Q14/Q15）；Manager 是 OpenClaw Agent，确定性编排逻辑作为系统指令 + 确定性工具集（如 `advance-state`）存在，LLM 只做生成式子任务（摘要、描述）。**Manager 是编排真相源**，不引入外部编排引擎 |
 | **上下文传递** | Matrix Room + `m.mentions`，无隐藏的 agent-to-agent 调用；MinIO 共享文件系统承载大对象 | **每起事故独占一个 Matrix Room**（`#incident-{id}`），所有 Agent 与值班人同处一室。结论、假设、决策以结构化消息在 room 内流转；火焰图、日志切片、pprof、YAML diff 等大件落 MinIO，room 内只传引用句柄，避免 token 爆炸 |
 | **协同执行** | 三种 Runtime 共存（OpenClaw / QwenPaw / Hermes），可同房间混用 | 编排与工具调用类角色（Commander/Sentinel/Remediator）用 **OpenClaw**（技能生态丰富）；需要写临时分析脚本、跑数据处理的 Diagnostician 用 **Hermes**（终端沙箱 + 持久记忆）；轻量高频探针类任务用 **QwenPaw**（内存占用低 80%） |
-| **状态追踪** | Manager heartbeat 在 Room 内可见；Controller reconcile metrics；AgentLoop 全栈可观测 | 自定义 `Incident` CR 承载状态机，**状态迁移由工作流引擎确定性写入**；每次迁移在 Room 内广播；AgentLoop 记录 LLM 推理 / Skill 调用 / MCP 工具调用全链路 Trace |
+| **状态追踪** | Manager heartbeat 在 Room 内可见；Controller reconcile metrics；AgentLoop 全栈可观测 | 自定义 `Incident` 对象承载状态机，**状态迁移由 Manager 内置确定性编排模块写入**（非外部引擎，Q10 修正）；每次迁移在 Room 内广播；全量状态迁移 + 输入参数写入 PostgreSQL append-only 审计表实现可重放（确定性逻辑 + 审计回放 = 可复现）；AgentLoop 记录 LLM 推理 / Skill 调用 / MCP 工具调用全链路 Trace |
 | **凭证安全** | Worker 永不持有真实凭证，只带消费者令牌 | **拆分为两个平面（见 §7.2）**：① LLM/MCP 访问平面由 **Higress AI Gateway** 代持模型 API Key 并向 Agent 发短期 consumer token；② K8s **执行凭据平面由独立的 K8s 原生凭证 Broker** 持有，按需 mint 短期按 SA 最小化、单任务有效的令牌。Worker 结构性不持有真实集群凭据，即使被提示注入攻破，破坏上限由 Broker 侧策略 + RBAC 硬约束 |
 | **人工介入** | `Human` CRD 建模人类为一等公民；人类可随时进入任意 Room 干预 | L3 审批以结构化卡片在 Room 内 @OnCall；人类可随时 `@commander 停止` 触发急停；所有人工干预自动进入复盘时间线 |
 | **Skill 注册与分发** | Nacos Skills Registry + skills.sh 生态，Worker 按需拉取 | Argus 的 17 个 Skill 发布到 Nacos 私有注册表，支持版本化、灰度、回滚；通用能力同步开源到 skills.sh |
@@ -188,7 +198,9 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-> **v1.1 修订**：原 PRD 数据层写的是阿里云托管数据库 PolarDB-PG，与「一条 `docker compose up` 起本地 Demo」（US-24 P0）及「纯开源自建栈」定位冲突。已改为自托管 **PostgreSQL + pgvector**（一条 compose 可起，向量+审计一张表）。PolarDB-PG 仅保留在 Later 路线图的「阿里云 Provider 适配」中。
+> **v1.1 修订**：原 PRD 数据层写的是阿里云托管数据库 PolarDB-PG，与「一条 `./setup.sh` 起本地 Demo」（US-24 P0）及「纯开源自建栈」定位冲突。已改为自托管 **PostgreSQL + pgvector**（一条 compose 可起，向量+审计一张表）。PolarDB-PG 仅保留在 Later 路线图的「阿里云 Provider 适配」中。
+>
+> **v1.4 修订（部署架构）**：US-24 原口径"一条 `docker compose up` 起含 K8s 的 Demo"——K8s 塞不进 compose。修正为：AgentTeams 本地 Docker 模式（一条 `curl | bash`）+ kind 做被监控集群，分离部署。US-24 验收口径改为"一条 `./setup.sh`（需 Docker）"。详见 §4.2 双部署模式对照表。
 
 ---
 
@@ -200,25 +212,28 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-commander` |
+| Agent ID | `argus-commander` |
 | 类型 | Manager Agent |
 | Runtime | OpenClaw |
-| 职责 | **编排协调与生成式决策**：按确定性工作流引擎定义的状态机推进事件；做各段内的生成式子任务（摘要、按结构化状态决定下一步派哪个 Worker、起草给人看的描述）；发起审批、升级与熔断指令 |
+| 职责 | **编排协调与生成式决策**：按 Manager 内置确定性编排模块定义的状态机推进事件；做各段内的生成式子任务（摘要、起草给人看的描述）；发起审批、升级与熔断指令 |
 | 输入 | Sentinel 产出的 Incident 对象、各 Worker 的阶段性结论、人类指令 |
 | 输出 | 任务指派消息、状态迁移事件、审批请求卡片、升级/熔断指令 |
-| **可以做** | 读取全部 Agent 产出；决定调用哪个 Worker；向人类请示；终止流程 |
+| **可以做** | 读取全部 Agent 产出；通过确定性工具（`advance-state` 等）推进状态机；决定调用哪个 Worker；向人类请示；终止流程 |
 | **不可以做** | ❌ 直接调用任何生产变更工具（无执行类 MCP 权限）；❌ 修改或覆盖风险分级规则（等级由确定性规则引擎硬裁定）；❌ 自行裁决风险等级或越权提权 |
 | 权限范围 | 只读全域 + 编排控制面。无任何生产写权限 |
 | 协同关系 | 上游 ← Sentinel；下游 → Diagnostician / Remediator / Validator / Scribe；旁路 ↔ Human(OnCall) |
-| 失败降级 | **工作流引擎独立于 LLM**：Commander 的 LLM 调用失败 → 引擎按失败分支重试/降级，状态机不依赖 LLM 判断，不会因 LLM 幻觉走偏；Commander 整体不可用 → 事件自动转为纯人工模式并全量推送值班人 |
+| **编排形态**（v1.4 Q15） | Manager 是 OpenClaw Agent，确定性编排逻辑作为**系统指令 + 确定性工具集**（`advance-state`、`assign-worker`、`escalate` 等）存在。状态迁移的执行由工具代码做（LLM 做不了状态写入），LLM 只在被要求时生成文本。**Manager 是编排真相源**，不引入外部编排引擎。即使 LLM 被提示注入后不调用 `advance-state`，结果只是事件停滞 → 触发超时 → 通知人工（最坏情况是停滞而非失控） |
+| 失败降级 | **确定性编排模块独立于 LLM**：Commander 的 LLM 调用失败 → 确定性工具按失败分支重试/降级/超时，状态机不依赖 LLM 判断，不会因 LLM 幻觉走偏；Commander 整体不可用 → 事件自动转为纯人工模式并全量推送值班人；**全量状态迁移 + 输入参数写入 PostgreSQL append-only 审计表，确定性逻辑 + 审计回放 = 可重放可复现** |
 
 > **v1.1 修订（编排可靠性）**：事件生命周期状态机与等级裁决由**非 LLM 的确定性工作流引擎 + 规则表**驱动（可审计、可重放、可回退）；LLM Manager 只做生成式子任务，硬控制流不依赖 LLM 判断。这消除了"Manager 单点故障导致整个闭环失控"的风险，且行为可复现。
+>
+> **v1.4 修订（Q10 修正/Q14/Q15）**：~~原计划引入 Temporal.io 作为外部工作流引擎~~——但这会把 AgentTeams 的 Manager-Worker 编排范式架空（Manager 降级为 Temporal 的信使）。修正为：**确定性编排逻辑内置在 Manager Agent 内部**，以 OpenClaw 的系统指令 + 确定性工具集（`advance-state` 等）形式存在。Manager 仍然是编排真相源，AgentTeams 的 Manager-Worker 范式完整保留。可重放靠 PostgreSQL append-only 审计表 + 确定性逻辑实现。不引入第二个编排系统。
 
 ### AG-01 · Sentinel（哨兵 · 告警聚合）
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-sentinel` |
+| Agent ID | `argus-sentinel` |
 | Runtime | QwenPaw（高频轻量） |
 | 职责 | 多源告警接入与归一化、时空聚类、拓扑因果降噪、抑制规则应用、事件定级、Incident 对象创建 |
 | 输入 | Alertmanager webhook、Loki 日志告警、K8s Event、黑盒探针、人工报障工单 |
@@ -233,7 +248,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-diagnostician` |
+| Agent ID | `argus-diagnostician` |
 | Runtime | Hermes（需终端沙箱做临时数据分析） |
 | 职责 | 服务拓扑快照、变更关联、指标异常下钻、日志模式挖掘、根因假设生成与排序、证据链组装 |
 | 输入 | Incident 对象、历史相似事件（RAG）、拓扑图、变更记录 |
@@ -248,7 +263,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-remediator` |
+| Agent ID | `argus-remediator` |
 | Runtime | OpenClaw |
 | 职责 | Runbook 匹配、修复方案生成、爆炸半径评估、风险**提交**、变更前快照、分级执行、失败回滚 |
 | 输入 | 根因结论 + 证据链、匹配到的 Runbook、当前变更冻结策略 |
@@ -263,7 +278,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-validator` |
+| Agent ID | `argus-validator` |
 | Runtime | QwenPaw |
 | 职责 | SLO 恢复判定、原始告警消解确认、副作用扫描、二次故障检测、稳定观察期守候 |
 | 输入 | 修复动作记录、服务 SLO 定义、修复前基线快照 |
@@ -278,7 +293,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-scribe` |
+| Agent ID | `argus-scribe` |
 | Runtime | OpenClaw |
 | 职责 | 事件时间线重建、复盘报告生成、知识蒸馏（Runbook/Skill 提案）、知识库写入、相似事件归并、**生成规则表候选补丁** |
 | 输入 | 全链路 Trace、Room 完整消息流、所有 Agent 结论、人工干预记录 |
@@ -298,7 +313,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| Agent ID | `nightwatch-oncall` |
+| Agent ID | `argus-oncall` |
 | 类型 | Human（AgentTeams `Human` CRD） |
 | 职责 | L3 动作审批、未知动作升级裁决、Agent 结论纠偏、急停、L4 动作的人工执行、**知识资产与规则表变更评审** |
 | 唯一拥有 | 提权决策权、L3+ 执行授权、系统急停权、规则表变更终审权 |
@@ -312,6 +327,8 @@
 ### 6.1 Incident 状态机
 
 > **v1.1 修订**：状态机由**确定性工作流引擎（代码）**驱动，迁移条件与超时/失败分支写死在引擎中，不依赖 LLM 实时判断。LLM 仅在各状态内生成内容（摘要、方案文本）。因此同一事件可完整重放、审计，且 LLM 故障不会导致状态机走偏。
+>
+> **v1.4 修订（Q10 修正/Q15）**：确定性编排逻辑**内置在 Manager Agent（IncidentCommander）中**，以 OpenClaw 系统指令 + 确定性工具集（`advance-state` 等）形式存在。Manager 是编排真相源，不引入外部引擎。全量状态迁移 + 输入参数写入 PostgreSQL append-only 审计表，确定性逻辑 + 审计回放 = 可重放可复现。
 
 ```
   [新告警]
@@ -418,9 +435,13 @@
 | 审计合规 | 全量操作日志不可篡改存储（append-only），保留期可配置，满足等保与内审要求 |
 | 知识库越权 | 知识库按服务/团队做多租户隔离，Agent 检索受 RBAC 约束 |
 
-### 7.5 风险规则表治理（v1.1 新增，对应第 6 问决策）
+### 7.5 风险规则表治理（v1.1 新增，v1.4 修订 Q9 两阶段管线）
 
 确定性规则表是整个安全模型的基石，其生命周期必须被显式治理，否则要么 Demo 首日无自治覆盖，要么未知动作悄悄放行。
+
+**v1.4 修订（两阶段管线）**：种子规则表中有 `max_replicas_affected`、`within_hpa_limits`、`must_trigger_rollout` 等约束需要运行时数据才能校验。Q1 的"确定性规则查表"定义为**两阶段管线**：
+1. **第一阶段——静态匹配**：action_verb + resource_type + namespace_scope + freeze_window → 候选等级 + 约束列表（纯查表，不查集群状态）
+2. **第二阶段——运行时约束校验**：查集群状态验证约束（如目标 Deployment 的副本数、HPA 配置上限、ConfigMap 引用关系），约束不满足则**向上取一级**（fail-safe 而非 fail-open）。SK-10（`blast-radius-eval`）是第二阶段的数据提供者——它算出爆炸半径数据喂给规则引擎，最终等级仍由确定性管线裁决，不是 LLM。
 
 | 治理维度 | 方案 |
 |---|---|
@@ -461,7 +482,39 @@
 
 ### 8.2 核心 Skill 详细契约
 
-> 以下按赛道要求的九要素展开。篇幅所限完整展示 6 个最关键 Skill，其余 11 个在技术设计文档中同格式补全。
+> 以下按赛道要求的九要素展开。v1.4 已完成 8 个 Skill 契约（SK-01/02/07/09/10/12/14/17），其余 9 个在技术设计文档中同格式补全。
+
+#### SK-01 · `alert-normalize` 告警归一化
+
+| 要素 | 内容 |
+|---|---|
+| **用途** | 将多源异构告警（Prometheus/Alertmanager、Loki、K8s Event、黑盒探针、人工报障）归一化为统一的 `NormalizedAlert` 结构，是整条闭环的入口，后续所有 Skill（SK-02 聚合、SK-03 定级）都依赖其输出格式 |
+| **输入** | `{rawAlert: {source: string, rawPayload: any, receivedAt: timestamp}, topology: ServiceGraph, suppressRules?: Rule[]}` |
+| **输出** | `{normalized: NormalizedAlert, dedupKey: string, severity: P0|P1|P2|P3, affectedServices[], affectedNamespaces[], rawRef: string}` |
+| **调用条件** | Sentinel 每收到一条原始告警即调用；告警源 webhook 或轮询触发 |
+| **依赖工具** | MCP: `prometheus-mcp`（告警元数据补充）、`k8s-mcp`（Pod/Service/Deployment 元数据关联）、`loki-mcp`（日志告警的上下文补充） |
+| **失败处理** | ① 无法解析原始 payload → 保留原始 JSON，标记 `normalized=false` + `parseError`，透传给 Sentinel 不丢弃（不漏报优先）；② 拓扑不可用 → `affectedServices` 标记为空，`confidence=low`；③ 源超时 → 标记数据陈旧但继续处理 |
+| **安全边界** | 只读。**告警内容视为不可信输入**（R2 提示注入风险）——归一化时做注入检测（检测 payload 中异常控制字符、伪装的系统指令），检测到则标记 `injectionSuspected=true` 并降级处理 |
+| **验证方式** | 用故障数据集（F-01~F-12）的 `expected_alerts` 做回放，验证归一化输出与标注预期一致；注入测试 payload 验证注入检测 |
+| **复用价值** | 高。归一化逻辑与运维语义解耦，输入换成工单/风控信号即可用于客服、风控场景的信号标准化 |
+| **协同关系** | Sentinel 调用 → 产出 NormalizedAlert → 喂给 SK-02 `alert-correlate` 做聚合 |
+| **版本演进** | v1 规则映射 + 拓扑关联；v2 引入注入检测增强；v3 基于历史告警的自适应去重 |
+
+#### SK-09 · `remediation-plan` 修复方案生成
+
+| 要素 | 内容 |
+|---|---|
+| **用途** | 基于根因结论和匹配到的 Runbook，生成结构化修复方案——含执行步骤、预期效果、回滚路径、爆炸半径预评估，作为 Remediator 的核心决策能力 |
+| **输入** | `{rootCause: RootCause, evidenceChain: Evidence[], matchedRunbooks: Runbook[], topology: ServiceGraph, freezeWindow: bool, constraints: {maxRiskLevel: L0|L1|L2|L3|L4}}` |
+| **输出** | `{plans: [{action, target, expectedOutcome, rollbackPath, preCheckActions[], postCheckActions[], estimatedRiskLevel: L0-L4, rationale, runbookRef}], recommendedPlanIndex, alternatives}` |
+| **调用条件** | Diagnostician 产出根因结论后，Remediator 在 PLANNING 状态强制调用；必须有根因结论（不接受"证据不足"时生成方案） |
+| **依赖工具** | MCP: `k8s-mcp`（查目标资源当前状态）、`git-mcp`（读 Runbook）；RAG: Runbook 检索（SK-08 产出）；内部变更冻结策略 API |
+| **失败处理** | ① 无匹配 Runbook → 基于根因 + 拓扑生成通用方案，标记 `runbookMatched=false`，`confidence=lower`；② 根因与可用 Runbook 矛盾 → 优先根因，标记 Runbook 可能过时；③ LLM 生成失败 → 退化为纯 Runbook 模板填充（确定性 fallback）；④ 方案涉及 L4 动作 → 只生成建议文本，不进入执行流程（人工处理） |
+| **安全边界** | 只读（生成方案，不执行）。**输出的 `estimatedRiskLevel` 仅作参考**——最终等级由确定性规则引擎裁决（Q1），Agent 不能自定最终等级。方案中的命令模板必须经 SK-12 `k8s-safe-exec` 执行，禁止 Agent 绕过 |
+| **验证方式** | 用故障数据集回放：验证 F-01 生成的方案是否为"rollout restart"、F-04 是否为"rollout undo"、F-08 是否被规则引擎拦截；人工审批通过率（修复方案采纳率指标） |
+| **复用价值** | 高。方案生成范式（根因→方案→回滚→风险标注）可迁移至任何"诊断→处置"场景 |
+| **协同关系** | Remediator 调用 → 方案喂给风险引擎（Q9 两阶段管线：SK-10 算爆炸半径 → 规则表定级）→ 定级后决定执行/审批/拒绝 |
+| **版本演进** | v1 Runbook 模板 + LLM 填充；v2 引入历史处置成功率排序方案；v3 基于反馈自动优化方案模板 |
 
 #### SK-02 · `alert-correlate` 告警聚合与降噪
 
@@ -703,7 +756,7 @@ incident-{id}/
 
 | ID | 用户故事 | 优先级 | 验收标准 |
 |---|---|---|---|
-| US-24 | 作为开源使用者，我希望半小时内在自己环境跑起来，以便快速评估 | P0 | **一条 `docker compose up` 起完整 Demo 环境（含 PostgreSQL + pgvector、MinIO、Redis、AgentTeams、示例微服务、混沌注入）**；README 含完整步骤 |
+| US-24 | 作为开源使用者，我希望半小时内在自己环境跑起来，以便快速评估 | P0 | **一条 `./setup.sh` 起完整 Demo 环境（需 Docker）**：脚本先起 AgentTeams 本地 Docker 模式（Higress/Tuwunel/MinIO/Element Web/Manager）+ 外围服务（PostgreSQL+pgvector/Redis），再 `kind create cluster` 起被监控 K8s 集群（示例微服务 + Chaos Mesh + Prometheus/Alertmanager/Loki）；README 含完整步骤 |
 | US-25 | 作为开源使用者，我希望能替换成我自己的监控栈，以便适配我的环境 | P1 | MCP Server 可插拔；提供 Provider 接口规范与适配示例 |
 | US-26 | 作为 SRE 负责人，我希望看到系统自身的健康度与成本，以便控制投入 | P1 | 提供 Agent 自身的可观测看板：调用量、成功率、Token 成本、延迟 |
 | US-27 | 作为开源使用者，我希望能自定义风险分级规则，以便匹配我的安全策略 | P1 | 风险规则以声明式配置文件存储（Git 管理），支持按环境/服务/时段差异化配置；变更走 PR 评审 |
@@ -726,7 +779,7 @@ incident-{id}/
 | | 急停指令生效 | ≤ 3s |
 | **可靠性** | 系统自身可用性 | ≥ 99.5%；Argus 挂掉必须优雅降级为纯人工模式并主动通知，**绝不静默失效** |
 | | 数据不丢 | 告警接入侧做持久化队列，系统重启不丢事件 |
-| | 编排控制流可靠性 | 状态机由确定性工作流引擎驱动，**不依赖 LLM 可用性**；LLM 故障仅影响生成式内容，不影响状态迁移与执行控制 |
+| | 编排控制流可靠性 | 状态机由 Manager Agent 内置确定性编排模块（代码+配置）驱动，**不依赖 LLM 可用性**；LLM 故障仅影响生成式内容，不影响状态迁移与执行控制；全量状态迁移写入 PostgreSQL append-only 审计表，可重放可复现（Q10 修正/Q15） |
 | **安全** | 凭证隔离 | Agent 层结构性不持有真实集群凭据（Broker 代持）；LLM/MCP 凭据由 Higress 代持 |
 | | 权限最小化 | 每 Agent 独立 SA，定期权限审计 |
 | | 审计完整性 | 所有动作 append-only 留痕，不可篡改；风险裁定可追溯至命中规则 |
@@ -811,12 +864,14 @@ incident-{id}/
 
 **目标：一条完整闭环在 Demo 环境跑通，能演示。**
 
-- AgentTeams 环境搭建，6 个 Agent（含 Human）CRD 定义与角色编排
+- AgentTeams 环境搭建（本地 Docker 模式），6 个 Agent（含 Human）定义与角色编排
 - MCP Server：`prometheus-mcp` / `loki-mcp` / `k8s-mcp` / `alertmanager-mcp` 四个核心接入
-- Skill：SK-01/02/06/07/09/10/11/12/14/16 十个 P0 Skill
-- **确定性风险分级引擎（声明式规则查表）+ 审批流 + 工作流状态机引擎**
+- Skill：SK-01/02/06/07/09/10/11/12/14/16 十个 P0 Skill（SK-01/SK-09 已完成契约，SK-06/SK-16 先用简化逻辑，跑通后补全）
+- **Manager 内置确定性编排模块（系统指令 + 确定性工具集 `advance-state` 等）+ 审批流 + 状态机**
+- **确定性风险分级引擎（两阶段管线：静态匹配 + 运行时约束校验，Q9）+ 种子规则表**
 - **K8s 凭证 Broker（短期令牌 mint）**
-- Demo 环境（Docker Compose 一键起）：PostgreSQL + pgvector / MinIO / Redis / K8s 集群 + 微服务示例 + 混沌注入（Pod OOM、依赖超时、配置错误、发布故障四类场景）
+- **声明式拓扑配置 `topology.yaml`（Q11，生产环境自动发现放 Later）**
+- Demo 环境（`./setup.sh` 一键起）：AgentTeams 本地 Docker + 外围服务（PostgreSQL+pgvector/MinIO/Redis）+ kind 被监控集群（微服务 + Chaos Mesh + Prometheus/Alertmanager/Loki）
 - 一键部署脚本 + README
 
 **交付验收**：从告警触发到复盘归档，全程无人工介入完成一次 L1 故障闭环，并完成一次 L3 人工审批流程演示（含未知动作默认拒绝演示）。
@@ -892,6 +947,21 @@ incident-{id}/
 
 **仍未解决的执行级问题**：见 §18（T1–T6）。其中 **T1（故障数据集）最关键**——没有它，根因命中率等核心指标永远只能是纸面数字，且 Q4 的固定基准也无法落地。建议下一步优先补 T1 + 一条真实闭环 Demo 脚本，而非先补剩余 11 个 Skill 契约（跑通闭环会反过来校正 Skill 设计）。
 
+### 第二轮 Grilling（v1.3 → v1.4，Q9–Q16 决策）
+
+> 第二轮针对 v1.3 新产出的数据集、规则表和 Demo 脚本做压力测试，暴露并锁定了 8 项承重墙问题。
+
+| # | 决策的承重墙问题 | 原 PRD 矛盾 / 风险 | v1.4 决策 | 落点 |
+|---|---|---|---|---|
+| Q9 | 规则表约束需要运行时数据才能校验 | `seed-rules.yaml` 有 `max_replicas_affected`/`within_hpa_limits`/`must_trigger_rollout` 等约束，纯静态查表无法执行 | **两阶段管线**：静态匹配（action_verb+resource_type+namespace+freeze→候选等级+约束列表）+ 运行时约束校验（查集群状态，不满足向上取一级 fail-safe）；SK-10 是第二阶段数据提供者 | §7.5、SK-10 |
+| Q10 | 确定性编排引擎选什么（~~Temporal~~） | PRD 多处承诺"可重放"但从未指名引擎；Q10 原决策 Temporal 会架空 AgentTeams 的 Manager-Worker 编排范式 | **~~Temporal~~ 撤回**。改为 **Manager Agent 内置确定性编排模块**（代码+配置），LLM 只做生成式子任务；可重放靠 PostgreSQL append-only 审计表 + 确定性逻辑；不引入第二个编排系统 | §4.2、§5 AG-00、§6.1、§13 |
+| Q11 | SK-02 的 `topology: ServiceGraph` 输入参数悬空 | 拓扑数据从哪来、谁维护、多久刷新——PRD 未定义 | **声明式拓扑配置文件 `deploy/topology.yaml` + Known Gap 标注**（生产环境拓扑自动发现是未解决问题放 Later） | §4.3、SK-02、§16 |
+| Q12 | US-24 说"docker compose up 起含 K8s 的 Demo"——K8s 塞不进 compose | PRD 承诺与部署可行性矛盾 | **AgentTeams 本地 Docker 模式 + kind 被监控集群分离**；US-24 口径修正为"一条 `./setup.sh`（需 Docker）" | §4.2、US-24、§16 |
+| Q13 | Agent ID 全部是 `nightwatch-` 前缀；§4.2 CRD 映射只适用 K8s 模式 | v1.2 改名时漏改 Agent ID；本地模式不用 CRD | **Agent ID 全局 `argus-`；补双部署模式对照表**（本地 Docker 和 K8s 均生产可用，按规模选择） | §4.2、§5 全部 Agent ID |
+| Q14 | Temporal 和 AgentTeams 的 Manager 谁是编排真相源 | Q10 选 Temporal 后 Manager 降级为信使，违背 AgentTeams 设计初衷 | **架构 3：Manager 是编排真相源**（确定性代码做状态机），LLM 只生成内容，AgentTeams Manager-Worker 范式完整保留 | §4.2、§5 AG-00 |
+| Q15 | Manager 内确定性编排的运行时形态 | 不清楚"确定性编排"是 prompt 里的规则还是独立代码进程 | **方式 1：OpenClaw Agent + 系统指令 + 确定性工具集**（`advance-state` 等）。状态迁移由工具代码执行，LLM 做不了状态写入。最坏情况是事件停滞（触发超时通知人工）而非失控 | §5 AG-00 |
+| Q16 | Demo 需要 10 个 P0 Skill 但只有 6 个写了契约 | SK-01/06/09/16 缺契约，Demo 无法实现 | **先补 SK-01 + SK-09**（Demo-01 最短路径上的两个），SK-06/SK-16 先用简化逻辑替代，跑通后补全 | §8.2 |
+
 ---
 
 ## 附录 A：术语表
@@ -912,4 +982,4 @@ incident-{id}/
 
 ---
 
-*文档结束（v1.1）。有疑问或需要展开任一章节（如技术设计文档、Agent Prompt 设计、Demo 场景脚本、剩余 11 个 Skill 契约），随时提。*
+*文档结束（v1.4）。有疑问或需要展开任一章节（如技术设计文档、Agent Prompt 设计、Demo 场景脚本、剩余 11 个 Skill 契约），随时提。*
