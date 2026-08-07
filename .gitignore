@@ -1,0 +1,50 @@
+# ===== WorkBuddy 内部运行时数据（非源码，请勿提交） =====
+.workbuddy/
+
+# ===== 操作系统文件 =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# ===== 编辑器 / IDE =====
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ===== Node / 前端构建产物 =====
+node_modules/
+dist/
+build/
+.output/
+.next/
+.cache/
+
+# ===== 日志 & 临时文件 =====
+*.log
+*.tmp
+*.bak
+*.swp
+~$*
+
+# ===== 密钥 / 凭据（慎用，必要时用 .env.example 替代） =====
+.env
+.env.local
+*.key
+*.pem
